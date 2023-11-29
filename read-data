@@ -1,2 +1,233 @@
 import os
+#pip install opencv-python 
+#opencv_python-4.8.1.78
+#numpy-1.26.2
+#pip-23.3.1
 import cv2
+import numpy as np
+import math
+#pip install matplotlib
+#matplotlib-3.8.2
+import matplotlib.pyplot as plt
+
+def edge_detection(grayImage):
+    laplacian = cv2.Laplacian(grayImage, cv2.CV_64F)
+    absX = cv2.convertScaleAbs(laplacian)
+    absX = cv2.GaussianBlur(absX, (3, 3), 100)
+    h, w = absX.shape
+    # cv2.imwrite('pictures/2.jpg',absX1)
+    plt.imshow(absX,cmap='gray')
+    plt.figure()
+    plt.imshow(absX,cmap='gray')
+    plt.show()
+    return absX, h, w
+
+def get_bound_piont(absX):
+    h, w = absX.shape
+    ret, absX = cv2.threshold(absX, 0, 255, cv2.THRESH_OTSU)
+    # plt.imshow(absX,cmap='gray')
+    # plt.show()
+    t, t1 = 0, h-1
+    bound_up_x, bound_down_x, bound_up_y, bound_down_y = [], [], [], []
+    for i in range(w):
+        y_min, y_max = 0, h-1
+        for j in range(h):
+            if absX[j, i] > ret:
+                if j < h // 2 and j > y_min:
+                    y_min = j
+                if j > h // 2 and j < y_max:
+                    y_max = j
+                    break
+        if t < y_min:
+            t = y_min
+        if t1 > y_max:
+            t1 = y_max
+        if y_max != h-1:
+            bound_up_x.append(i)
+            bound_up_y.append(y_max)
+        if y_min != 0:
+            bound_down_x.append(i)
+            bound_down_y.append(y_min)
+    t2 = (t+t1)/2.
+    bound_up_x = np.array(bound_up_x)
+    bound_down_x = np.array(bound_down_x)
+    bound_up_y = np.array(bound_up_y)
+    bound_down_y = np.array(bound_down_y)
+    return bound_up_x, bound_down_x, bound_up_y, bound_down_y
+def fun2ploy(x, n):
+
+    lens = len(x)
+    X = np.ones([1, lens])
+    for i in range(1, n):
+        X = np.vstack((X, np.power(x, i)))
+    return X
+
+
+def leastseq_byploy(x, y, ploy_dim):
+
+    #Scatter chart
+    # plt.scatter(x,y,color="r",marker='o',s = 50)
+    # plt.show()
+
+    X = fun2ploy(x, ploy_dim)
+    # Direct solution
+    Xt = X.transpose()  # Transpose into a column vector
+    XXt = X.dot(Xt)  # Matrix multiplication
+    XXtInv = np.linalg.inv(XXt)
+    XXtInvX = XXtInv.dot(X)
+    coef = XXtInvX.dot(y.T)
+
+    y_est = Xt.dot(coef)
+
+    return y_est, coef
+
+
+
+
+
+def fitting_line(absX):
+    ploy_dim = 2  # The number of fitting parameters, that is, the number of weights
+    # data preparation
+    bound_up_x, bound_down_x, bound_up_y, bound_down_y = get_bound_piont(absX)
+    x = bound_up_x
+    y = bound_up_y
+    x1 = bound_down_x
+    y1 = bound_down_y
+    # # Least squares fitting
+    [y_est, coef] = leastseq_byploy(x, y, ploy_dim)
+    [y_est1, coef1] = leastseq_byploy(x1, y1, ploy_dim)
+    # print(coef,coef1)
+    # Show fitting results
+    # est_data = plt.plot(x,y_est,color="g",linewidth= 4)
+    # est_data = plt.plot(x1,y_est1,color="g",linewidth= 4)
+    # plt.show()
+    b1, k1 = coef
+    b2, k2 = coef1
+    k = (k1+k2)/2.0
+    b = (b1+b2)/2.0
+    return k, b
+
+
+
+
+def get_theta(k, b, w):
+    w_c = w/2
+    h_c = k * w_c + b
+    x = np.arange(w)
+    # y = h_c.repeat(w)
+    y = k*x+b
+    # est_data = plt.plot(x,y,color="r",linewidth= 3)
+    theta = math.atan(k)
+    return theta, w_c, h_c
+
+
+
+
+def Rotating_picture(img, theta, h_c, w_c):
+    h, w, _ = img.shape
+    matRotate = cv2.getRotationMatrix2D((h_c, w_c), 180*theta/math.pi, 1)
+    img1 = cv2.warpAffine(img, matRotate, (w, h))
+    #print(180*theta/math.pi)
+
+
+
+def get_point(x, y, angle, w_c, h_c):
+    (cX, cY) = (w_c, h_c)
+    if (cX-x) == 0:
+        theta1 = math.atan((cY-y)/1)
+        l = 1/math.cos(theta1)
+    else:
+        theta1 = math.atan((cY-y)/(cX-x))
+        l = (cX-x)/math.cos(theta1)
+    # print(h,w)
+    new_x = cX-math.cos(angle + theta1)*l
+    new_y = cY-math.sin(angle + theta1)*l
+    # print(l, math.cos(theta1),cX,cY)
+    # print((new_x-cX)**2+(new_y-cY)**2,(x-cX)**2+(y-cY)**2)
+    return round(new_x), round(new_y)
+
+
+
+
+
+def Vertical_boundary(theta, bound_down_x, bound_down_y, bound_up_x, bound_up_y, w_c, h_c):
+    locs = list(zip(bound_down_x, bound_down_y))
+    locs1 = list(zip(bound_up_x, bound_up_y))
+    new_locs = list(map(lambda loc: get_point(
+        loc[0], loc[1],   theta, w_c, h_c), locs))
+    new_locs1 = list(map(lambda loc: get_point(
+        loc[0], loc[1],   theta, w_c, h_c), locs1))
+    # new_locs = list(map(fun, locs))
+    # print(180*theta/math.pi)
+    new_locs = list(zip(*new_locs))
+    new_locs1 = list(zip(*new_locs1))
+    # yu=max(bound_down_y)
+    # yu1=min(bound_up_y)
+    Y_max = int(max(new_locs[1]))
+    Y_min = int(min(new_locs1[1]))
+    #print(Y_max, Y_min)
+    Y_max = np.array(Y_max)
+    Y_min = np.array(Y_min)
+    Y1 = Y_max.repeat(len(bound_up_x))
+    Y2 = Y_min.repeat(len(bound_down_x))
+    plt.plot(bound_down_x, Y2+2, color='g', linewidth=2)
+    plt.plot(bound_up_x, Y1+2, color='g', linewidth=2)
+    plt.plot(bound_down_x, bound_down_y, color='g', linewidth=1)
+    plt.plot(bound_up_x, bound_up_y, color='g', linewidth=1)
+    plt.plot(new_locs[0], new_locs[1],color="r",linewidth= 1)
+    plt.plot(new_locs1[0], new_locs1[1],color="r",linewidth= 1)
+    return(Y_max, Y_min)
+
+
+
+
+def Horizontal_boundary(cropped):
+    max_1, max_2 = 0, 0
+    height, width, _ = cropped.shape
+    kernel_width = width // 20
+    # print(height, width)
+    x = [i for i in range(width)]
+    light = [0 for i in range(width)]
+    for w in range(width - kernel_width):
+        light[w+kernel_width//2] = np.sum(cropped[:, w: w+kernel_width])
+        if w+kernel_width//2 > width/3:
+            if light[w+kernel_width//2] > light[w+kernel_width//2+1] and light[w+kernel_width//2] > light[w+kernel_width//2-1]:
+                if max_1 < light[w+kernel_width//2]:
+                    max_1 = light[w+kernel_width//2]
+                    t800 = w+kernel_width//2
+    cut_1, cut_2 = int(t800/3), int(2/3*(width-t800)+t800)
+    plt.figure()
+    plt.plot(x, light, color="b",linewidth= 2)
+    plt.show()
+    #print(cut_1, cut_2)
+    return cut_1, cut_2
+
+
+img_file = './Finger Vein Database/001/left'
+roi_file = './Finger Vein Database/001/right'
+for dirname, _, filenames in os.walk(img_file):
+    for filename in filenames:
+        img_path = os.path.join(dirname, filename)
+        img = cv2.imread(img_path)
+
+        grayImage = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # grayImage = process(grayImage, filters)
+        grayImage = cv2.GaussianBlur(grayImage,(3,3),0)
+        
+        absX, h, w = edge_detection(grayImage)
+
+        bound_up_x, bound_down_x, bound_up_y, bound_down_y = get_bound_piont(absX)
+        
+        k, b = fitting_line(absX)
+        theta, w_c, h_c = get_theta(k, b, w)
+        img = Rotating_picture(img, theta, h_c, w_c)
+
+        Y_max, Y_min = Vertical_boundary(-theta, bound_down_x,
+                                        bound_down_y, bound_up_x, bound_up_y, w_c, h_c)
+        cropped = img[Y_max:Y_min, :]
+        X_min, X_max = Horizontal_boundary(cropped)
+        cropped = img[Y_max:Y_min, X_min:X_max]
+        plt.figure()
+        plt.imshow(cropped,cmap='gray')
+        plt.show()
+
